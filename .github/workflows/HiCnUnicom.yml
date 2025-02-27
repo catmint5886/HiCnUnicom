@@ -3,32 +3,49 @@ name: 联通掌厅签到
 on:
   workflow_dispatch:
   schedule:
-    - cron: 30 04,23 * * ?
-    
+    - cron: '0 0 * * *'  # 北京时间8点执行[3](@ref)
+
 jobs:
   run-it:
     runs-on: ubuntu-latest
-    name: 联通掌厅签到
-    if: github.event.repository.owner.id == github.event.sender.id
     steps:
-        - name: Checkout codes
-          uses: actions/checkout@v2
-          
-        - name: 运行时间
-          run: |
-            time=$(curl -s "http://quan.suning.com/getSysTime.do")
-            echo -e "当前时间：\n${time}"
- 
-        - name: 联通掌厅签到
-          env:
-            user: ${{ secrets.USER }}
-            appid: ${{ secrets.APPID }}
-          run: |
-            # 判断是否有设置appid，没有则使用默认配置
-            if test -z "$appid"; then   appid="247b001385de5cc6ce11731ba1b15835313d489d604e58280e455a6c91e5058651acfb0f0b77029c2372659c319e02645b54c0acc367e692ab24a546b83c302d"; fi
-            
-            for u in $user
-            do
-              bash CnUnicom.sh ${u/,/ }
-            done
+      - uses: actions/checkout@v4
 
+      - name: 执行签到
+        env:
+          USER: ${{ secrets.USER }}
+          APPID: ${{ secrets.APPID }}
+        run: |
+          set -euo pipefail  # 启用严格错误检查
+          
+          # APPID有效性检查
+          if [[ -z "$APPID" || ${#APPID} -ne 128 ]]; then
+            echo "::error::APPID错误：未配置或长度异常（应为128字符）"
+            exit 1
+          fi
+
+          # 多账号循环处理
+          IFS=$'\n'  # 支持换行分隔多账号
+          for account in $USER; do
+            IFS=',' read -r phone password <<< "$account"
+            
+            # 服务密码有效性检查
+            if [[ -z "$password" || "$password" == *" "* ]]; then
+              echo "::error::手机号 $phone 密码格式错误（包含空格或为空）"
+              continue
+            fi
+
+            # 执行签到并捕获错误类型
+            output=$(bash CnUnicom.sh "$phone" "$password" "$APPID" 2>&1 || true)
+            
+            if [[ "$output" == *"Login failed"* ]]; then
+              echo "::error::手机号 $phone 服务密码错误"
+            elif [[ "$output" == *"appid invalid"* ]]; then
+              echo "::error::APPID失效，需重新抓取"
+              exit 1  # APPID错误立即终止
+            elif [[ "$output" == *"Success"* ]]; then
+              echo "手机号 $phone 签到成功"
+            else
+              echo "::warning::手机号 $phone 未知错误：$output"
+            fi
+          done
