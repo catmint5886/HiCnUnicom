@@ -1,0 +1,30 @@
+name: Checkin
+on:
+  schedule:
+    - cron: '0 8 * * *'  # 每天 UTC 时间 0 点（北京时间 8 点）
+
+jobs:
+  checkin:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Cache dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run checkin
+        env:
+          USER: ${{ secrets.USER }}  # 格式：手机号,密码（特殊字符需 URL 编码）
+        run: python main.py
