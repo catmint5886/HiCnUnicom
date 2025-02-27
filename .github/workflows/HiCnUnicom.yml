@@ -3,7 +3,7 @@ name: 中国联通自动签到
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 0 * * *'  # 每天UTC 0点执行（北京时间8:00）
+    - cron: '30 0 * * *'  # 每天UTC 0:30执行（北京时间8:30）
 
 jobs:
   signin:
@@ -14,27 +14,31 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: 设置Python环境
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.12"
+
       - name: 安装依赖
         run: |
-          pip install pycryptodome==3.20.0
-          pip install requests==2.31.0
+          pip install --upgrade pycryptodome==3.20.0 requests==2.31.0
 
-      - name: 执行签到
+      - name: 执行签到任务
         env:
-          USER: ${{ secrets.USER }}  # 格式：手机号1,密码1\n手机号2,密码2
-          APPID: ${{ secrets.APPID }}  # 需抓包获取最新160位十六进制字符串
+          USER: ${{ secrets.USER }}  # 格式：手机号1,密码1\n手机号2,密码2[6,9](@ref)
+          APPID: ${{ secrets.APPID }}  # 需抓包获取的160位十六进制字符串[4,5](@ref)
         run: |
-          # APPID格式验证[1,5](@ref)
+          # 严格验证APPID格式
           if [[ -z "$APPID" || ${#APPID} -ne 160 || ! "$APPID" =~ ^[0-9a-f]+$ ]]; then
             echo "::error::APPID格式错误：必须为160位十六进制字符串"
             exit 1
           fi
 
-          IFS=$'\n'  # 多账号换行分隔[7](@ref)
+          IFS=$'\n'
           for account in $USER; do
             IFS=',' read -r phone password <<< "$account"
             
-            # 密码有效性验证[4](@ref)
+            # 密码有效性验证
             if [[ -z "$password" || "$password" == *" "* ]]; then
               echo "::error::手机号 $phone 密码格式错误（含空格或为空）"
               continue
@@ -42,7 +46,7 @@ jobs:
 
             output=$(python3 CnUnicom.py "$phone" "$password" "$APPID" 2>&1)
             
-            # 错误类型判断[4,5](@ref)
+            # 错误类型判断
             if [[ "$output" == *"login failed"* ]]; then
               echo "::error::手机号 $phone 服务密码错误"
             elif [[ "$output" == *"appid invalid"* ]]; then
@@ -56,8 +60,9 @@ jobs:
             fi
           done
 
-      - name: 上传日志
+      - name: 上传执行日志
         uses: actions/upload-artifact@v4
         with:
           name: signin-log
           path: ${{ github.workflow }}-log.txt
+          retention-days: 3
